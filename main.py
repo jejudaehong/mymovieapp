@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import plotly.express as px
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -40,24 +41,24 @@ if "faultInfo" in data:
 
 box_list = data.get("boxOfficeResult", {}).get("dailyBoxOfficeList", [])
 
-# 2. 고른 날짜에 영화 목록이 비어있는 경우
+# 고른 날짜에 영화 목록이 비어있는 경우
 if not box_list:
     st.warning("그날은 아직 집계 전입니다.")
     st.stop()
 
 df = pd.DataFrame(box_list)
 
-# 글자로 온 숫자들을 숫자 타입으로 변환 (rankInten 추가)
+# 숫자로 변환
 for col in ["rank", "rankInten", "audiCnt", "audiAcc", "scrnCnt", "showCnt"]:
     df[col] = pd.to_numeric(df[col])
 
-# 3. 누적 관객 100만 명 이상 영화명 옆에 트로피(🏆) 추가
+# 누적 관객 100만 명 이상 영화명 옆에 트로피(🏆) 추가
 df["movieNm"] = df.apply(
     lambda row: f"🏆 {row['movieNm']}" if row["audiAcc"] >= 1000000 else row["movieNm"],
     axis=1
 )
 
-# 4. 순위 증감(rankInten) 화살표 포맷팅 함수
+# 순위 증감(rankInten) 화살표 포맷팅
 def format_rank_change(val):
     if val > 0:
         return f"🔺 {val}"
@@ -83,6 +84,42 @@ table = table.sort_values("순위").reset_index(drop=True)
 st.subheader("📋 박스오피스 TOP 10")
 st.dataframe(table, use_container_width=True)
 
+# ----------------------------------------------------
+# 🍕 관객수 비율 원형 그래프 (Plotly)
+# ----------------------------------------------------
+st.subheader("🍕 관객수 점유율 (1% 이상)")
+
+# 관객수 비율(%) 계산
+total_audi = table["관객수"].sum()
+if total_audi > 0:
+    table["비율(%)"] = (table["관객수"] / total_audi) * 100
+else:
+    table["비율(%)"] = 0
+
+# 1% 미만 제외 필터링
+pie_df = table[table["비율(%)"] >= 1.0].copy()
+
+if not pie_df.empty:
+    fig = px.pie(
+        pie_df,
+        values="관객수",
+        names="영화명",
+        title="TOP 10 영화별 관객수 점유율",
+        hole=0.3, # 도넛 스타일 (원할 경우 0으로 변경 가능)
+        hover_data=["관객수"]
+    )
+    
+    # 원형 그래프 레이아웃 설정 (퍼센트 + 라벨 표시)
+    fig.update_traces(
+        textinfo="percent+label",
+        hovertemplate="<b>%{label}</b><br>관객수: %{value:,}명 (%{percent})"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("표시할 관객수 데이터가 없습니다.")
+
+# 관객수 상위 5편 막대 그래프
 st.subheader("📈 관객수 상위 5편")
 top5 = table.sort_values("관객수", ascending=False).head(5)
 st.bar_chart(top5.set_index("영화명")["관객수"])
